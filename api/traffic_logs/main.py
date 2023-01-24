@@ -151,7 +151,7 @@ def delete_traffic_log(
     status_code=status.HTTP_200_OK,
     response_model=TrafficLogResponse
 )
-async def patch_traffic_log(
+def patch_traffic_log(
         *,
         traffic_log_id: str = Path(title="The ID of the traffic log to retrieve"),
         traffic_log_update: TrafficLogOptional
@@ -168,14 +168,14 @@ async def patch_traffic_log(
         traffic_log_collection = client[DATABASE][TRAFFIC_LOGS_COLLECTION]
 
         new_traffic_log = {k: v for k, v in traffic_log_update.dict().items() if v is not None}
-        new_traffic_log = jsonable_encoder(new_traffic_log)
+        new_traffic_log = jsonable_encoder(new_traffic_log, exclude_unset=True)
 
         if len(new_traffic_log) == 0:
             logger.warning("New traffic log was empty, no update will be done")
 
             response = TrafficLogResponse(
                 status=status.HTTP_200_OK,
-                message=f"New traffic log was empty, no update will be done",
+                message="New traffic log was empty, no update will be done",
                 traffic_log=None
             )
 
@@ -185,9 +185,9 @@ async def patch_traffic_log(
                 media_type="application/json"
             )
 
-        result = await traffic_log_collection.find_one_and_update(
+        result = traffic_log_collection.find_one_and_update(
             {"_id": ObjectId(traffic_log_id)},
-            {"$set": {new_traffic_log}},
+            {"$set": new_traffic_log},
             return_document=ReturnDocument.AFTER
         )
 
@@ -232,8 +232,7 @@ async def patch_traffic_log(
 @app.post(
     "/agent/traffic_logs",
     status_code=status.HTTP_201_CREATED,
-    response_model=TrafficLogResponse,
-    response_model_exclude_none=True
+    response_model=TrafficLogResponse
 )
 def create_traffic_log(request: TrafficLogRequest):
     """
