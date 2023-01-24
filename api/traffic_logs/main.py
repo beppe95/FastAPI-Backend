@@ -14,7 +14,9 @@ from database import client
 DATABASE = "ermes"
 TRAFFIC_LOGS_COLLECTION = "traffic_logs"
 
-app = FastAPI()
+app = FastAPI(
+    title="FastAPI Backend"
+)
 
 logger = loguru.logger
 logger.remove()
@@ -26,7 +28,7 @@ logger.add(
 
 
 @app.get(
-    "/traffic_log/echo",
+    "/agent/traffic_logs/echo",
     status_code=status.HTTP_200_OK
 )
 async def echo():
@@ -35,7 +37,7 @@ async def echo():
 
 
 @app.get(
-    "/traffic_log/{traffic_log_id}",
+    "/agent/traffic_logs/{traffic_log_id}",
     status_code=status.HTTP_200_OK,
     response_model=TrafficLogResponse
 )
@@ -95,7 +97,7 @@ def fetch_traffic_log(
 
 
 @app.delete(
-    "/traffic_log/{traffic_log_id}",
+    "/agent/traffic_logs/{traffic_log_id}",
     status_code=status.HTTP_200_OK,
     response_model=TrafficLogResponse
 )
@@ -145,7 +147,7 @@ def delete_traffic_log(
 
 
 @app.patch(
-    "/traffic_log/{traffic_log_id}",
+    "/agent/traffic_logs/{traffic_log_id}",
     status_code=status.HTTP_200_OK,
     response_model=TrafficLogResponse
 )
@@ -210,6 +212,7 @@ async def patch_traffic_log(
             method=result['method'],
             server=result['server'],
             client=result['client'],
+            url=result['url'],
             headers=result['headers'],
             body=result['body']
         )
@@ -227,7 +230,7 @@ async def patch_traffic_log(
 
 
 @app.post(
-    "/traffic_log",
+    "/agent/traffic_logs",
     status_code=status.HTTP_201_CREATED,
     response_model=TrafficLogResponse,
     response_model_exclude_none=True
