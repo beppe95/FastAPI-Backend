@@ -3,7 +3,7 @@ from pydantic import BaseSettings
 
 class AuthEndpoints(BaseSettings):
     TOKEN_ENDPOINT: str
-    AUTHORIZE_ENDPOINT: str
+    AUTH_ENDPOINT: str
     JWKS_ENDPOINT: str
 
     class Config:
@@ -16,7 +16,6 @@ class AuthSettings(BaseSettings):
     CLIENT_SECRET: str
     AUDIENCE: str
     ISSUER: str
-    ALGORITHM: str
 
     class Config:
         env_file = "./.env"

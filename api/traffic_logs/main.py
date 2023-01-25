@@ -3,14 +3,21 @@ import uuid
 
 import loguru
 import uvicorn
-from fastapi import FastAPI, status, Path
+from fastapi import FastAPI, status, Path, Depends
 from fastapi.encoders import jsonable_encoder
+from fastapi.security import HTTPBearer
 
 from api.traffic_logs.schemas import TrafficLogResponse
 from .exceptions import *
 from .models.traffic_log_create import TrafficLogCreate
 from .models.traffic_log_update import TrafficLogUpdate
 from .repositories import TrafficLogRepository
+from ..auth.exceptions import UnauthorizedException, ForbiddenException
+
+from ..auth import main as auth_app
+
+# Scheme for the Authorization header
+token_auth_scheme = HTTPBearer()
 
 app = FastAPI(
     title="FastAPI Backend"
@@ -29,8 +36,10 @@ logger.add(
     "/agent/traffic_logs/echo",
     status_code=status.HTTP_200_OK
 )
-async def echo():
-    logger.info("Logging from echo method")
+def echo():
+    """
+    Echo for traffic_logs module
+    """
     return {"message": "Echo method"}
 
 
@@ -41,14 +50,19 @@ async def echo():
 )
 def fetch_traffic_log(
         *,
-        traffic_log_id: str = Path(title="The ID of the traffic log to retrieve")
+        traffic_log_id: str = Path(title="The ID of the traffic log to retrieve"),
+        access_token: str = Depends(token_auth_scheme)
 ):
     request_id = str(uuid.uuid4())
 
     with logger.contextualize(request_id=request_id):
-        logger.info(f"Fetching traffic log ID {traffic_log_id}")
 
         try:
+
+            auth_app.authorize(access_token.credentials)
+
+            logger.info(f"Fetching traffic log ID {traffic_log_id}")
+
             result = TrafficLogRepository.get(traffic_log_id)
 
             logger.info(f"Successfully retrieved traffic log {result}")
@@ -60,6 +74,32 @@ def fetch_traffic_log(
             )
 
             return JSONResponse(
+                content=jsonable_encoder(response, exclude_none=True),
+                media_type="application/json",
+            )
+
+        except UnauthorizedException:
+
+            response = TrafficLogResponse(
+                status=status.HTTP_401_UNAUTHORIZED,
+                message=f"Unauthorized to retrieve Traffic log ID {traffic_log_id}"
+            )
+
+            return JSONResponse(
+                status_code=response.status,
+                content=jsonable_encoder(response, exclude_none=True),
+                media_type="application/json",
+            )
+
+        except ForbiddenException:
+
+            response = TrafficLogResponse(
+                status=status.HTTP_403_FORBIDDEN,
+                message=f"Traffic log ID {traffic_log_id} cannot be accessed"
+            )
+
+            return JSONResponse(
+                status_code=response.status,
                 content=jsonable_encoder(response, exclude_none=True),
                 media_type="application/json",
             )
@@ -86,7 +126,8 @@ def fetch_traffic_log(
 def patch_traffic_log(
         *,
         traffic_log_id: str = Path(title="The ID of the traffic log to retrieve"),
-        traffic_log_update: TrafficLogUpdate
+        traffic_log_update: TrafficLogUpdate,
+        access_token: str = Depends(token_auth_scheme)
 ):
     request_id = str(uuid.uuid4())
 
@@ -95,6 +136,8 @@ def patch_traffic_log(
         logger.info(f"Fetching traffic log ID {traffic_log_id}")
 
         try:
+
+            auth_app.authorize(access_token.credentials)
 
             result = TrafficLogRepository.update(traffic_log_id, traffic_log_update)
 
@@ -107,6 +150,32 @@ def patch_traffic_log(
             return JSONResponse(
                 content=jsonable_encoder(response, exclude_none=True),
                 media_type="application/json"
+            )
+
+        except UnauthorizedException:
+
+            response = TrafficLogResponse(
+                status=status.HTTP_401_UNAUTHORIZED,
+                message=f"Unauthorized to update Traffic log ID {traffic_log_id}"
+            )
+
+            return JSONResponse(
+                status_code=response.status,
+                content=jsonable_encoder(response, exclude_none=True),
+                media_type="application/json",
+            )
+
+        except ForbiddenException:
+
+            response = TrafficLogResponse(
+                status=status.HTTP_403_FORBIDDEN,
+                message=f"Traffic log ID {traffic_log_id} cannot be updated"
+            )
+
+            return JSONResponse(
+                status_code=response.status,
+                content=jsonable_encoder(response, exclude_none=True),
+                media_type="application/json",
             )
 
         except TrafficLogNotFoundException:
@@ -131,14 +200,18 @@ def patch_traffic_log(
 )
 def delete_traffic_log(
         *,
-        traffic_log_id: str = Path(title="The ID of the traffic log to delete")
+        traffic_log_id: str = Path(title="The ID of the traffic log to delete"),
+        access_token: str = Depends(token_auth_scheme)
 ):
     request_id = str(uuid.uuid4())
 
     with logger.contextualize(request_id=request_id):
+
         logger.info(f"Fetching traffic log ID {traffic_log_id}")
 
         try:
+
+            auth_app.authorize(access_token.credentials)
 
             TrafficLogRepository.delete(traffic_log_id)
 
@@ -153,6 +226,32 @@ def delete_traffic_log(
             return JSONResponse(
                 content=jsonable_encoder(response, exclude_none=True),
                 media_type="application/json"
+            )
+
+        except UnauthorizedException:
+
+            response = TrafficLogResponse(
+                status=status.HTTP_401_UNAUTHORIZED,
+                message=f"Unauthorized to delete Traffic log ID {traffic_log_id}"
+            )
+
+            return JSONResponse(
+                status_code=response.status,
+                content=jsonable_encoder(response, exclude_none=True),
+                media_type="application/json",
+            )
+
+        except ForbiddenException:
+
+            response = TrafficLogResponse(
+                status=status.HTTP_403_FORBIDDEN,
+                message=f"Traffic log ID {traffic_log_id} cannot be deleted"
+            )
+
+            return JSONResponse(
+                status_code=response.status,
+                content=jsonable_encoder(response, exclude_none=True),
+                media_type="application/json",
             )
 
         except TrafficLogNotFoundException:
@@ -174,30 +273,62 @@ def delete_traffic_log(
     response_model=TrafficLogResponse
 )
 def create_traffic_log(
-        request: TrafficLogCreate
+        request: TrafficLogCreate,
+        access_token: str = Depends(token_auth_scheme)
 ):
     request_id = str(uuid.uuid4())
 
     with logger.contextualize(request_id=request_id):
-        traffic_log_request = jsonable_encoder(request)
 
-        logger.info(f"Received request {request}")
+        try:
 
-        result = TrafficLogRepository.create(traffic_log_request)
+            auth_app.authorize(access_token.credentials)
 
-        logger.info(f"Successfully created TrafficLog {result}")
+            traffic_log_request = jsonable_encoder(request)
 
-        response = TrafficLogResponse(
-            status=status.HTTP_201_CREATED,
-            message="Traffic log created",
-            traffic_log=result
-        )
+            logger.info(f"Received request {request}")
 
-        return JSONResponse(
-            status_code=response.status,
-            content=jsonable_encoder(response, exclude_none=True),
-            media_type="application/json"
-        )
+            result = TrafficLogRepository.create(traffic_log_request)
+
+            logger.info(f"Successfully created TrafficLog {result}")
+
+            response = TrafficLogResponse(
+                status=status.HTTP_201_CREATED,
+                message="Traffic log created",
+                traffic_log=result
+            )
+
+            return JSONResponse(
+                status_code=response.status,
+                content=jsonable_encoder(response, exclude_none=True),
+                media_type="application/json"
+            )
+
+        except UnauthorizedException:
+
+            response = TrafficLogResponse(
+                status=status.HTTP_401_UNAUTHORIZED,
+                message="Unauthorized to create new Traffic log"
+            )
+
+            return JSONResponse(
+                status_code=response.status,
+                content=jsonable_encoder(response, exclude_none=True),
+                media_type="application/json",
+            )
+
+        except ForbiddenException:
+
+            response = TrafficLogResponse(
+                status=status.HTTP_403_FORBIDDEN,
+                message="Resource forbidden, cannot create new Traffic log"
+            )
+
+            return JSONResponse(
+                status_code=response.status,
+                content=jsonable_encoder(response, exclude_none=True),
+                media_type="application/json",
+            )
 
 
 def run():
