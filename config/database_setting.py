@@ -2,7 +2,9 @@ from pydantic import BaseSettings
 
 
 class DatabaseSettings(BaseSettings):
-    DATABASE_URL: str
+    URI: str
+    MONGO_DATABASE: str
+    LOGS_COLLECTION: str
 
     class Config:
         env_file = "./.env"

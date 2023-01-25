@@ -2,17 +2,22 @@ import sys
 import uuid
 
 import loguru
-from bson.objectid import ObjectId
-from fastapi import FastAPI, status, Path
+import uvicorn
+from fastapi import FastAPI, status, Path, Depends
 from fastapi.encoders import jsonable_encoder
-from fastapi.responses import JSONResponse
-from pymongo import ReturnDocument
+from fastapi.security import HTTPBearer
 
-from api.traffic_logs.schemas import TrafficLogRequest, TrafficLogOptional, TrafficLogResponse
-from database import client
+from api.traffic_logs.schemas import TrafficLogResponse
+from .exceptions import *
+from .models.traffic_log_create import TrafficLogCreate
+from .models.traffic_log_update import TrafficLogUpdate
+from .repositories import TrafficLogRepository
+from ..auth.exceptions import UnauthorizedException, ForbiddenException
 
-DATABASE = "ermes"
-TRAFFIC_LOGS_COLLECTION = "traffic_logs"
+from ..auth import main as auth_app
+
+# Scheme for the Authorization header
+token_auth_scheme = HTTPBearer()
 
 app = FastAPI(
     title="FastAPI Backend"
@@ -31,234 +36,304 @@ logger.add(
     "/agent/traffic_logs/echo",
     status_code=status.HTTP_200_OK
 )
-async def echo():
-    logger.info("Logging from echo method")
+def echo():
+    """
+    Echo for traffic_logs module
+    """
     return {"message": "Echo method"}
 
 
 @app.get(
     "/agent/traffic_logs/{traffic_log_id}",
-    status_code=status.HTTP_200_OK,
+    description="Fetch a single TrafficLog by its ID",
     response_model=TrafficLogResponse
 )
 def fetch_traffic_log(
         *,
-        traffic_log_id: str = Path(title="The ID of the traffic log to retrieve")
+        traffic_log_id: str = Path(title="The ID of the traffic log to retrieve"),
+        access_token: str = Depends(token_auth_scheme)
 ):
-    """
-    Fetch a single TrafficLog by ID
-    """
     request_id = str(uuid.uuid4())
 
     with logger.contextualize(request_id=request_id):
-        logger.info(f"Fetching traffic log ID {traffic_log_id}")
 
-        traffic_log_collection = client[DATABASE][TRAFFIC_LOGS_COLLECTION]
+        try:
 
-        result = traffic_log_collection.find_one(
-            {"_id": ObjectId(traffic_log_id)}
-        )
+            auth_app.authorize(access_token.credentials)
 
-        if not result:
+            logger.info(f"Fetching traffic log ID {traffic_log_id}")
+
+            result = TrafficLogRepository.get(traffic_log_id)
+
+            logger.info(f"Successfully retrieved traffic log {result}")
+
             response = TrafficLogResponse(
-                status=status.HTTP_404_NOT_FOUND,
-                message=f"Traffic log ID {traffic_log_id} not found",
-                traffic_log=None
+                status=status.HTTP_200_OK,
+                message=f"Traffic log ID {traffic_log_id} found",
+                traffic_log=result
             )
 
             return JSONResponse(
                 content=jsonable_encoder(response, exclude_none=True),
-                status_code=status.HTTP_404_NOT_FOUND,
-                media_type="application/json"
+                media_type="application/json",
             )
 
-        logger.info(f"Successfully retrieved traffic log ID {traffic_log_id}")
+        except UnauthorizedException:
 
-        traffic_log = TrafficLogOptional(
-            scheme=result['scheme'],
-            http_version=result['http_version'],
-            method=result['method'],
-            server=result['server'],
-            client=result['client'],
-            headers=result['headers'],
-            body=result['body']
-        )
-
-        response = TrafficLogResponse(
-            status=status.HTTP_200_OK,
-            message=f"Traffic log ID {traffic_log_id} found",
-            traffic_log=traffic_log
-        )
-
-        return JSONResponse(
-            content=jsonable_encoder(response, exclude_none=True),
-            media_type="application/json",
-        )
-
-
-@app.delete(
-    "/agent/traffic_logs/{traffic_log_id}",
-    status_code=status.HTTP_200_OK,
-    response_model=TrafficLogResponse
-)
-def delete_traffic_log(
-        *,
-        traffic_log_id: str = Path(title="The ID of the traffic log to delete")
-):
-    """
-    Delete a single TrafficLog by ID
-    """
-    request_id = str(uuid.uuid4())
-
-    with logger.contextualize(request_id=request_id):
-        logger.info(f"Fetching traffic log ID {traffic_log_id}")
-
-        traffic_log_collection = client[DATABASE][TRAFFIC_LOGS_COLLECTION]
-
-        result = traffic_log_collection.find_one_and_delete(
-            {"_id": ObjectId(traffic_log_id)}
-        )
-
-        if not result:
             response = TrafficLogResponse(
-                status=status.HTTP_404_NOT_FOUND,
-                message=f"Traffic log ID {traffic_log_id} not found",
-                traffic_log=None
+                status=status.HTTP_401_UNAUTHORIZED,
+                message=f"Unauthorized to retrieve Traffic log ID {traffic_log_id}"
             )
 
             return JSONResponse(
+                status_code=response.status,
                 content=jsonable_encoder(response, exclude_none=True),
-                status_code=status.HTTP_404_NOT_FOUND,
-                media_type="application/json"
+                media_type="application/json",
             )
 
-        logger.info(f"Successfully deleted traffic log ID {traffic_log_id}")
+        except ForbiddenException:
 
-        response = TrafficLogResponse(
-            status=status.HTTP_200_OK,
-            message=f"Traffic log ID {traffic_log_id} deleted",
-            traffic_log=None
-        )
+            response = TrafficLogResponse(
+                status=status.HTTP_403_FORBIDDEN,
+                message=f"Traffic log ID {traffic_log_id} cannot be accessed"
+            )
 
-        return JSONResponse(
-            content=jsonable_encoder(response, exclude_none=True),
-            media_type="application/json"
-        )
+            return JSONResponse(
+                status_code=response.status,
+                content=jsonable_encoder(response, exclude_none=True),
+                media_type="application/json",
+            )
+
+        except TrafficLogNotFoundException:
+
+            response = TrafficLogResponse(
+                status=status.HTTP_404_NOT_FOUND,
+                message=f"Traffic log ID {traffic_log_id} not found"
+            )
+
+            return JSONResponse(
+                status_code=response.status,
+                content=jsonable_encoder(response, exclude_none=True),
+                media_type="application/json",
+            )
 
 
 @app.patch(
     "/agent/traffic_logs/{traffic_log_id}",
-    status_code=status.HTTP_200_OK,
+    description="Patch a single TrafficLog by its ID",
     response_model=TrafficLogResponse
 )
 def patch_traffic_log(
         *,
         traffic_log_id: str = Path(title="The ID of the traffic log to retrieve"),
-        traffic_log_update: TrafficLogOptional
+        traffic_log_update: TrafficLogUpdate,
+        access_token: str = Depends(token_auth_scheme)
 ):
-    """
-    Patch a single TrafficLog by ID
-    """
     request_id = str(uuid.uuid4())
 
     with logger.contextualize(request_id=request_id):
 
         logger.info(f"Fetching traffic log ID {traffic_log_id}")
 
-        traffic_log_collection = client[DATABASE][TRAFFIC_LOGS_COLLECTION]
+        try:
 
-        new_traffic_log = {k: v for k, v in traffic_log_update.dict().items() if v is not None}
-        new_traffic_log = jsonable_encoder(new_traffic_log, exclude_unset=True)
+            auth_app.authorize(access_token.credentials)
 
-        if len(new_traffic_log) == 0:
-            logger.warning("New traffic log was empty, no update will be done")
+            result = TrafficLogRepository.update(traffic_log_id, traffic_log_update)
 
             response = TrafficLogResponse(
                 status=status.HTTP_200_OK,
-                message="New traffic log was empty, no update will be done",
-                traffic_log=None
+                message=f"Traffic log ID {traffic_log_id} updated",
+                traffic_log=result
             )
 
             return JSONResponse(
                 content=jsonable_encoder(response, exclude_none=True),
-                status_code=status.HTTP_404_NOT_FOUND,
                 media_type="application/json"
             )
 
-        result = traffic_log_collection.find_one_and_update(
-            {"_id": ObjectId(traffic_log_id)},
-            {"$set": new_traffic_log},
-            return_document=ReturnDocument.AFTER
-        )
+        except UnauthorizedException:
 
-        if not result:
+            response = TrafficLogResponse(
+                status=status.HTTP_401_UNAUTHORIZED,
+                message=f"Unauthorized to update Traffic log ID {traffic_log_id}"
+            )
+
+            return JSONResponse(
+                status_code=response.status,
+                content=jsonable_encoder(response, exclude_none=True),
+                media_type="application/json",
+            )
+
+        except ForbiddenException:
+
+            response = TrafficLogResponse(
+                status=status.HTTP_403_FORBIDDEN,
+                message=f"Traffic log ID {traffic_log_id} cannot be updated"
+            )
+
+            return JSONResponse(
+                status_code=response.status,
+                content=jsonable_encoder(response, exclude_none=True),
+                media_type="application/json",
+            )
+
+        except TrafficLogNotFoundException:
+
             response = TrafficLogResponse(
                 status=status.HTTP_404_NOT_FOUND,
-                message=f"Traffic log ID {traffic_log_id} not found",
+                message=f"Traffic log ID {traffic_log_id} not found"
+            )
+
+            return JSONResponse(
+                status_code=response.status,
+                content=jsonable_encoder(response, exclude_none=True),
+                media_type="application/json",
+            )
+
+
+@app.delete(
+    "/agent/traffic_logs/{traffic_log_id}",
+    description="Delete a single TrafficLog by ID",
+    status_code=status.HTTP_200_OK,
+    response_model=TrafficLogResponse
+)
+def delete_traffic_log(
+        *,
+        traffic_log_id: str = Path(title="The ID of the traffic log to delete"),
+        access_token: str = Depends(token_auth_scheme)
+):
+    request_id = str(uuid.uuid4())
+
+    with logger.contextualize(request_id=request_id):
+
+        logger.info(f"Fetching traffic log ID {traffic_log_id}")
+
+        try:
+
+            auth_app.authorize(access_token.credentials)
+
+            TrafficLogRepository.delete(traffic_log_id)
+
+            logger.info(f"Successfully deleted traffic log ID {traffic_log_id}")
+
+            response = TrafficLogResponse(
+                status=status.HTTP_200_OK,
+                message=f"Traffic log ID {traffic_log_id} deleted",
                 traffic_log=None
             )
 
             return JSONResponse(
                 content=jsonable_encoder(response, exclude_none=True),
-                status_code=status.HTTP_404_NOT_FOUND,
                 media_type="application/json"
             )
 
-        logger.info(f"Successfully updated traffic log ID {traffic_log_id}")
+        except UnauthorizedException:
 
-        traffic_log = TrafficLogOptional(
-            scheme=result['scheme'],
-            http_version=result['http_version'],
-            method=result['method'],
-            server=result['server'],
-            client=result['client'],
-            url=result['url'],
-            headers=result['headers'],
-            body=result['body']
-        )
+            response = TrafficLogResponse(
+                status=status.HTTP_401_UNAUTHORIZED,
+                message=f"Unauthorized to delete Traffic log ID {traffic_log_id}"
+            )
 
-        response = TrafficLogResponse(
-            status=status.HTTP_200_OK,
-            message=f"Traffic log ID {traffic_log_id} updated",
-            traffic_log=traffic_log
-        )
+            return JSONResponse(
+                status_code=response.status,
+                content=jsonable_encoder(response, exclude_none=True),
+                media_type="application/json",
+            )
 
-        return JSONResponse(
-            content=jsonable_encoder(response, exclude_none=True),
-            media_type="application/json"
-        )
+        except ForbiddenException:
+
+            response = TrafficLogResponse(
+                status=status.HTTP_403_FORBIDDEN,
+                message=f"Traffic log ID {traffic_log_id} cannot be deleted"
+            )
+
+            return JSONResponse(
+                status_code=response.status,
+                content=jsonable_encoder(response, exclude_none=True),
+                media_type="application/json",
+            )
+
+        except TrafficLogNotFoundException:
+            response = TrafficLogResponse(
+                status=status.HTTP_404_NOT_FOUND,
+                message=f"Traffic log ID {traffic_log_id} not found"
+            )
+
+            return JSONResponse(
+                status_code=response.status,
+                content=jsonable_encoder(response, exclude_none=True),
+                media_type="application/json",
+            )
 
 
 @app.post(
     "/agent/traffic_logs",
-    status_code=status.HTTP_201_CREATED,
+    description="Create a new traffic log",
     response_model=TrafficLogResponse
 )
-def create_traffic_log(request: TrafficLogRequest):
-    """
-    Insert a new HTTP traffic log
-    """
+def create_traffic_log(
+        request: TrafficLogCreate,
+        access_token: str = Depends(token_auth_scheme)
+):
     request_id = str(uuid.uuid4())
 
     with logger.contextualize(request_id=request_id):
-        request = jsonable_encoder(request)
 
-        logger.info(f"Received request {request}")
+        try:
 
-        traffic_log_collection = client[DATABASE][TRAFFIC_LOGS_COLLECTION]
-        result = traffic_log_collection.insert_one(request)
-        logger.info(f"Successfully created TrafficLog with ID {result.inserted_id}")
+            auth_app.authorize(access_token.credentials)
 
-        logger.info(type(result.inserted_id))
+            traffic_log_request = jsonable_encoder(request)
 
-        response = TrafficLogResponse(
-            status=status.HTTP_201_CREATED,
-            id=str(result.inserted_id),
-            message=f"Traffic log ID {result.inserted_id} created",
-            traffic_log=None
-        )
+            logger.info(f"Received request {request}")
 
-        return JSONResponse(
-            content=jsonable_encoder(response, exclude_none=True),
-            media_type="application/json"
-        )
+            result = TrafficLogRepository.create(traffic_log_request)
+
+            logger.info(f"Successfully created TrafficLog {result}")
+
+            response = TrafficLogResponse(
+                status=status.HTTP_201_CREATED,
+                message="Traffic log created",
+                traffic_log=result
+            )
+
+            return JSONResponse(
+                status_code=response.status,
+                content=jsonable_encoder(response, exclude_none=True),
+                media_type="application/json"
+            )
+
+        except UnauthorizedException:
+
+            response = TrafficLogResponse(
+                status=status.HTTP_401_UNAUTHORIZED,
+                message="Unauthorized to create new Traffic log"
+            )
+
+            return JSONResponse(
+                status_code=response.status,
+                content=jsonable_encoder(response, exclude_none=True),
+                media_type="application/json",
+            )
+
+        except ForbiddenException:
+
+            response = TrafficLogResponse(
+                status=status.HTTP_403_FORBIDDEN,
+                message="Resource forbidden, cannot create new Traffic log"
+            )
+
+            return JSONResponse(
+                status_code=response.status,
+                content=jsonable_encoder(response, exclude_none=True),
+                media_type="application/json",
+            )
+
+
+def run():
+    uvicorn.run(
+        app,
+        host="localhost",
+        port=8000
+    )

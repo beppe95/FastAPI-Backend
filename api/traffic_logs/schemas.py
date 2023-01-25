@@ -64,5 +64,4 @@ class TrafficLogResponse(BaseModel):
     traffic_log: Optional[TrafficLogOptional] = Field(None)
 
 
-class TrafficLog(BaseModel):
-    id: int
+

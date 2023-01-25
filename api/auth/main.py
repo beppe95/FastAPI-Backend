@@ -3,9 +3,13 @@ import uuid
 
 import loguru
 import requests
+import uvicorn
 from fastapi import FastAPI, status
 
+from api.auth.utils import VerifyToken
 from config.auth_setting import auth_settings, auth_endpoints
+
+token_verifier = VerifyToken()
 
 app = FastAPI()
 
@@ -22,11 +26,10 @@ logger.add(
     "/auth/echo",
     status_code=status.HTTP_200_OK
 )
-async def echo():
+def echo():
     """
     Echo for auth module
     """
-    logger.info("Logging from echo method")
     return {"message": "Echo method"}
 
 
@@ -57,7 +60,7 @@ def get_access_token():
             }
 
             access_token_response = session.post(
-                url=auth_endpoints.AUTH_ENDPOINT,
+                url=auth_endpoints.TOKEN_ENDPOINT,
                 data=access_token_body,
                 headers=headers
             )
@@ -66,7 +69,9 @@ def get_access_token():
                     and access_token_response.status_code == 200 \
                     and 'content-type' in access_token_response.headers \
                     and 'application/json' in access_token_response.headers['content-type']:
+
                 return access_token_response.json()
+
             else:
                 logger.error(f"Error while retrieving access token - "
                              f"Status {access_token_response.status_code}, "
@@ -77,6 +82,13 @@ def get_access_token():
     "/auth/authorize",
     status_code=status.HTTP_200_OK
 )
-async def authorize():
+def authorize(access_token: str):
+    return token_verifier.verify(access_token)
 
-    return {"message": "Server up and running!"}
+
+def run():
+    uvicorn.run(
+        app,
+        host="localhost",
+        port=8001
+    )

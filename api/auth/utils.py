@@ -1,13 +1,13 @@
 import jwt
 
+from api.auth.exceptions import ForbiddenException, BadRequestException
 from config.auth_setting import auth_settings, auth_endpoints
 
 
 class VerifyToken:
     """Does all the token verification using PyJWT"""
 
-    def __init__(self, token, permissions=None, scopes=None):
-        self.token = token
+    def __init__(self, permissions=None, scopes=None):
         self.permissions = permissions
         self.scopes = scopes
         self.config = auth_settings
@@ -18,37 +18,38 @@ class VerifyToken:
         jwks_url = self.endpoints.JWKS_ENDPOINT
         self.jwks_client = jwt.PyJWKClient(jwks_url)
 
-    def verify(self):
+    def verify(self, token: str):
 
         try:
+
             self.signing_key = self.jwks_client.get_signing_key_from_jwt(
-                self.token
+                token
             ).key
+
         except jwt.exceptions.PyJWKClientError as error:
             return {"status": "error", "msg": error.__str__()}
+
         except jwt.exceptions.DecodeError as error:
             return {"status": "error", "msg": error.__str__()}
 
         try:
+
             payload = jwt.decode(
-                self.token,
+                token,
                 self.signing_key,
                 algorithms=self.config.ALGORITHM,
                 audience=self.config.AUDIENCE,
                 issuer=self.config.ISSUER,
             )
+
         except Exception as e:
             return {"status": "error", "message": str(e)}
 
         if self.scopes:
-            result = self._check_claims(payload, 'scope', str, self.scopes.split(' '))
-            if result.get("error"):
-                return result
+            self._check_claims(payload, 'scope', str, self.scopes.split(' '))
 
         if self.permissions:
-            result = self._check_claims(payload, 'permissions', list, self.permissions)
-            if result.get("error"):
-                return result
+            self._check_claims(payload, 'permissions', list, self.permissions)
 
         return payload
 
@@ -61,23 +62,15 @@ class VerifyToken:
         payload_claim = payload[claim_name]
 
         if claim_name not in payload or not instance_check:
-            result["status"] = "error"
-            result["status_code"] = 400
-
-            result["code"] = f"missing_{claim_name}"
-            result["msg"] = f"No claim '{claim_name}' found in token."
-            return result
+            raise BadRequestException(message=f"No claim '{claim_name}' found in token")
 
         if claim_name == 'scope':
             payload_claim = payload[claim_name].split(' ')
 
         for value in expected_value:
             if value not in payload_claim:
-                result["status"] = "error"
-                result["status_code"] = 403
 
-                result["code"] = f"insufficient_{claim_name}"
-                result["msg"] = (f"Insufficient {claim_name} ({value}). You "
+                raise ForbiddenException(message=f"Insufficient {claim_name} ({value}). You "
                                  "don't have access to this resource")
-                return result
+
         return result
