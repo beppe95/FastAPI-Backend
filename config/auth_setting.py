@@ -7,7 +7,7 @@ class AuthEndpoints(BaseSettings):
     JWKS_ENDPOINT: str
 
     class Config:
-        env_file = "./.env"
+        env_file = ".env"
 
 
 class AuthSettings(BaseSettings):
@@ -16,9 +16,10 @@ class AuthSettings(BaseSettings):
     CLIENT_SECRET: str
     AUDIENCE: str
     ISSUER: str
+    ALGORITHM: str
 
     class Config:
-        env_file = "./.env"
+        env_file = ".env"
 
 
 auth_settings = AuthSettings()

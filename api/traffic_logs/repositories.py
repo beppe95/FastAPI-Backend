@@ -24,13 +24,13 @@ class TrafficLogRepository:
         return TrafficLogRead(**document)
 
     @staticmethod
-    def create(create: TrafficLogCreate) -> TrafficLogRead:
+    def create(create: TrafficLogCreate) -> (ObjectId, TrafficLogRead):
         """Create a TrafficLog and return its Read object"""
 
         result = traffic_log_collection.insert_one(create)
         assert result.acknowledged
 
-        return TrafficLogRepository.get(result.inserted_id)
+        return result.inserted_id, TrafficLogRepository.get(result.inserted_id)
 
     @staticmethod
     def update(traffic_log_id: str, update: TrafficLogUpdate) -> TrafficLogRead:

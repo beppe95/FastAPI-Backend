@@ -1,3 +1,5 @@
+from typing import Optional
+
 from pydantic import BaseModel, Field
 
 
@@ -6,7 +8,7 @@ class BaseError(BaseModel):
 
 
 class BaseIdentifiedError(BaseError):
-    identifier: str = Field(..., description="Unique identifier which this error references to")
+    identifier: Optional[str] = Field(..., description="Unique identifier which this error references to")
 
 
 class BadRequestError(BaseIdentifiedError):

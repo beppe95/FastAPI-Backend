@@ -2,7 +2,6 @@ import sys
 import uuid
 
 import loguru
-import uvicorn
 from fastapi import FastAPI, status, Path, Depends
 from fastapi.encoders import jsonable_encoder
 from fastapi.security import HTTPBearer
@@ -12,15 +11,14 @@ from .exceptions import *
 from .models.traffic_log_create import TrafficLogCreate
 from .models.traffic_log_update import TrafficLogUpdate
 from .repositories import TrafficLogRepository
-from ..auth.exceptions import UnauthorizedException, ForbiddenException
-
 from ..auth import main as auth_app
+from ..auth.exceptions import UnauthorizedException, ForbiddenException
 
 # Scheme for the Authorization header
 token_auth_scheme = HTTPBearer()
 
 app = FastAPI(
-    title="FastAPI Backend"
+    title="Traffic Logs Controller"
 )
 
 logger = loguru.logger
@@ -49,7 +47,6 @@ def echo():
     response_model=TrafficLogResponse
 )
 def fetch_traffic_log(
-        *,
         traffic_log_id: str = Path(title="The ID of the traffic log to retrieve"),
         access_token: str = Depends(token_auth_scheme)
 ):
@@ -124,10 +121,10 @@ def fetch_traffic_log(
     response_model=TrafficLogResponse
 )
 def patch_traffic_log(
-        *,
-        traffic_log_id: str = Path(title="The ID of the traffic log to retrieve"),
         traffic_log_update: TrafficLogUpdate,
+        traffic_log_id: str = Path(title="The ID of the traffic log to retrieve"),
         access_token: str = Depends(token_auth_scheme)
+
 ):
     request_id = str(uuid.uuid4())
 
@@ -199,7 +196,6 @@ def patch_traffic_log(
     response_model=TrafficLogResponse
 )
 def delete_traffic_log(
-        *,
         traffic_log_id: str = Path(title="The ID of the traffic log to delete"),
         access_token: str = Depends(token_auth_scheme)
 ):
@@ -272,7 +268,7 @@ def delete_traffic_log(
     description="Create a new traffic log",
     response_model=TrafficLogResponse
 )
-def create_traffic_log(
+async def create_traffic_log(
         request: TrafficLogCreate,
         access_token: str = Depends(token_auth_scheme)
 ):
@@ -282,19 +278,19 @@ def create_traffic_log(
 
         try:
 
-            auth_app.authorize(access_token.credentials)
+            await auth_app.authorize(access_token.credentials)
 
             traffic_log_request = jsonable_encoder(request)
 
             logger.info(f"Received request {request}")
 
-            result = TrafficLogRepository.create(traffic_log_request)
+            resultId, result = TrafficLogRepository.create(traffic_log_request)
 
             logger.info(f"Successfully created TrafficLog {result}")
 
             response = TrafficLogResponse(
                 status=status.HTTP_201_CREATED,
-                message="Traffic log created",
+                message=f"Traffic log ID {resultId} created",
                 traffic_log=result
             )
 
@@ -329,11 +325,3 @@ def create_traffic_log(
                 content=jsonable_encoder(response, exclude_none=True),
                 media_type="application/json",
             )
-
-
-def run():
-    uvicorn.run(
-        app,
-        host="localhost",
-        port=8000
-    )

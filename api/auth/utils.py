@@ -1,6 +1,6 @@
 import jwt
 
-from api.auth.exceptions import ForbiddenException, BadRequestException
+from api.auth.exceptions import ForbiddenException, BadRequestException, UnauthorizedException
 from config.auth_setting import auth_settings, auth_endpoints
 
 
@@ -26,11 +26,8 @@ class VerifyToken:
                 token
             ).key
 
-        except jwt.exceptions.PyJWKClientError as error:
-            return {"status": "error", "msg": error.__str__()}
-
-        except jwt.exceptions.DecodeError as error:
-            return {"status": "error", "msg": error.__str__()}
+        except (jwt.exceptions.PyJWKClientError, jwt.exceptions.DecodeError) as error:
+            raise UnauthorizedException(identifier=None, message=error.__str__())
 
         try:
 
@@ -43,7 +40,7 @@ class VerifyToken:
             )
 
         except Exception as e:
-            return {"status": "error", "message": str(e)}
+            raise UnauthorizedException(message=e.__str__())
 
         if self.scopes:
             self._check_claims(payload, 'scope', str, self.scopes.split(' '))
@@ -69,8 +66,7 @@ class VerifyToken:
 
         for value in expected_value:
             if value not in payload_claim:
-
                 raise ForbiddenException(message=f"Insufficient {claim_name} ({value}). You "
-                                 "don't have access to this resource")
+                                                 "don't have access to this resource")
 
         return result

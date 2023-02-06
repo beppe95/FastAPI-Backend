@@ -1,17 +1,21 @@
 import sys
 import uuid
 
+import aiohttp
 import loguru
-import requests
-import uvicorn
 from fastapi import FastAPI, status
+from fastapi.encoders import jsonable_encoder
+from starlette.responses import JSONResponse
 
+from api.auth.exceptions import UnauthorizedException
 from api.auth.utils import VerifyToken
 from config.auth_setting import auth_settings, auth_endpoints
 
 token_verifier = VerifyToken()
 
-app = FastAPI()
+app = FastAPI(
+    title="Auth Controller"
+)
 
 logger = loguru.logger
 logger.remove()
@@ -35,16 +39,18 @@ def echo():
 
 @app.post(
     "/auth/token",
-    status_code=status.HTTP_200_OK
+    status_code=status.HTTP_200_OK,
+    description="Retrieve access token from Auth0 provider "
+                "(https://auth0.com/docs/secure/tokens/access-tokens/get-access-tokens)",
 )
-def get_access_token():
+async def get_access_token():
     """
     Get access token from Auth0
     """
     request_id = str(uuid.uuid4())
 
     with logger.contextualize(request_id=request_id):
-        with requests.Session() as session:
+        async with aiohttp.ClientSession() as session:
 
             headers = {
                 "Accept": "*/*",
@@ -59,36 +65,49 @@ def get_access_token():
                 "audience": auth_settings.AUDIENCE
             }
 
-            access_token_response = session.post(
-                url=auth_endpoints.TOKEN_ENDPOINT,
-                data=access_token_body,
-                headers=headers
-            )
+            async with session.post(
+                    url=auth_endpoints.TOKEN_ENDPOINT,
+                    data=access_token_body,
+                    headers=headers
+            ) as access_token_response:
 
-            if access_token_response \
-                    and access_token_response.status_code == 200 \
-                    and 'content-type' in access_token_response.headers \
-                    and 'application/json' in access_token_response.headers['content-type']:
+                if access_token_response \
+                        and access_token_response.status == 200 \
+                        and 'content-type' in access_token_response.headers \
+                        and 'application/json' in access_token_response.headers['content-type']:
 
-                return access_token_response.json()
+                    return JSONResponse(
+                        status_code=status.HTTP_200_OK,
+                        content=jsonable_encoder(await access_token_response.json()),
+                        media_type="application/json",
+                    )
 
-            else:
-                logger.error(f"Error while retrieving access token - "
-                             f"Status {access_token_response.status_code}, "
-                             f"Error {access_token_response.json()}")
+                else:
+                    logger.error(f"Error while retrieving access token - "
+                                 f"Status {access_token_response.status}, "
+                                 f"Error {access_token_response.json()}")
 
 
 @app.post(
     "/auth/authorize",
-    status_code=status.HTTP_200_OK
+    description="Validate a given access token",
 )
-def authorize(access_token: str):
-    return token_verifier.verify(access_token)
+async def authorize(access_token: str):
+    try:
+        token_verifier.verify(access_token)
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content=None,
+            media_type="application/json",
+        )
+    except UnauthorizedException as uex:
 
+        error_message = f"Error validating access token, message={uex.message}"
 
-def run():
-    uvicorn.run(
-        app,
-        host="localhost",
-        port=8001
-    )
+        logger.error(error_message)
+
+        return JSONResponse(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            content=jsonable_encoder({"message": error_message}, exclude_none=True),
+            media_type="application/json",
+        )
